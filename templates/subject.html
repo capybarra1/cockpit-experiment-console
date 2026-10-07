@@ -1,0 +1,1116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>自动驾驶实验 (Subject)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        /* 纯净模式样式 */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+            color: #fff;
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .btn {
+            background: #2563eb;
+            color: #fff;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            margin-top: 20px;
+            transition: 0.2s;
+        }
+
+        .btn:hover {
+            background: #1d4ed8;
+        }
+
+        .btn:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        .btn-green {
+            background: #16a34a;
+        }
+
+        .btn-green:hover {
+            background: #15803d;
+        }
+
+        #subject-view {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            background-color: #000;
+        }
+
+        #sync-box {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 50px;
+            height: 50px;
+            background: black;
+            z-index: 9999;
+        }
+
+        /* UI 层 */
+        #ui-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        #ui-layer > * {
+            pointer-events: auto;
+        }
+
+        .middle-screen {
+            position: absolute;
+            left: 33.333%;
+            width: 33.333%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(18, 18, 18, 0.98);
+            padding: 40px;
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+
+        .middle-screen.transparent {
+            background: transparent;
+            pointer-events: none;
+        }
+
+        /* 问卷样式 */
+        .likert-container {
+            width: 100%;
+            margin-bottom: 20px;
+            background: rgba(255, 255, 255, 0.03);
+            padding: 15px;
+            border-radius: 6px;
+        }
+
+        .likert-question {
+            font-weight: bold;
+            margin-bottom: 12px;
+            display: block;
+            font-size: 1rem;
+        }
+
+        .likert-scale {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .likert-option {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+            width: 14%;
+            color: #aaa;
+            font-size: 0.9rem;
+        }
+
+        .likert-option input {
+            width: 18px;
+            height: 18px;
+            margin-bottom: 6px;
+            cursor: pointer;
+        }
+
+        .likert-option input:checked + span {
+            color: #60a5fa;
+            font-weight: bold;
+        }
+
+        .likert-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: #6b7280;
+            margin-top: 5px;
+            padding: 0 5px;
+        }
+
+        .section-title {
+            color: #93c5fd;
+            font-weight: bold;
+            margin-top: 25px;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #374151;
+            padding-bottom: 5px;
+            font-size: 1.1rem;
+        }
+
+        input[type="text"], input[type="number"], select, textarea {
+            color: #000000 !important;
+            background-color: #ffffff !important;
+            width: 100%;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 5px;
+            border: 1px solid #ccc;
+            box-sizing: border-box;
+        }
+
+        input[type="text"], input[type="number"], select {
+            height: 46px;
+            line-height: normal;
+        }
+
+        textarea {
+            height: 80px;
+            resize: none;
+        }
+
+        /* 遮罩层通用样式 */
+        .overlay-screen {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 50;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+
+        #loading-spinner {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-left: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            margin-top: -20px;
+            margin-left: -20px;
+            z-index: 5;
+            display: none;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div id="subject-view">
+    <div id="sync-box"></div>
+
+    <video id="main-video" class="hidden fixed top-0 left-0 w-full h-full object-contain z-0" playsinline
+           preload="auto">
+        您的浏览器不支持 Video 标签。
+    </video>
+
+    <div id="loading-spinner"></div>
+    <div id="video-placeholder" class="fixed top-0 left-0 w-full h-full bg-black hidden z-0"></div>
+
+    <div id="takeover-toast"
+         class="hidden fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-900/80 text-white px-8 py-4 rounded-xl text-2xl font-bold shadow-lg z-[200] backdrop-blur-sm pointer-events-none transition-opacity duration-300 border border-red-500">
+        ⚠️ 接管成功
+    </div>
+
+    <div id="ready-overlay" class="overlay-screen">
+        <h1 class="text-3xl font-bold mb-4">实验准备就绪</h1>
+        <p class="text-gray-400 mb-8">请点击下方按钮以激活全屏和音频权限，随后进入引导流程。</p>
+        <button class="btn btn-green text-xl px-8 py-4" onclick="activateExperiment()">点击进入实验模式 (全屏)</button>
+    </div>
+
+    <div id="fullscreen-prompt" class="overlay-screen hidden" style="z-index: 9999;">
+        <h1 class="text-3xl font-bold mb-4 text-yellow-400">请恢复全屏模式</h1>
+        <p class="text-gray-400 mb-8">实验需要全屏进行，请点击下方按钮继续。</p>
+        <button class="btn btn-blue text-xl px-8 py-4" onclick="restoreFullscreen()">恢复全屏并继续</button>
+    </div>
+
+    <div id="play-retry-overlay" class="overlay-screen hidden" style="background:rgba(0,0,0,0.8); z-index:60;">
+        <div class="text-white text-xl mb-4 font-bold">视频准备就绪</div>
+        <button class="btn btn-green text-2xl px-12 py-6 rounded-full shadow-lg border-2 border-white"
+                onclick="manualPlay()">
+            ▶ 点击播放
+        </button>
+        <p class="text-gray-400 mt-4 text-sm">浏览器阻止了自动播放，请手动点击开始。</p>
+    </div>
+
+    <div id="ui-layer" class="hidden">
+
+        <div id="p-welcome" class="middle-screen hidden text-center">
+            <h1 id="welcome-title" class="text-4xl font-bold mb-6 text-blue-400"></h1>
+            <div id="welcome-content"
+                 class="w-full max-w-3xl text-left bg-gray-900 p-8 rounded-lg border border-gray-700 space-y-4 text-lg text-gray-200 min-h-[250px] flex flex-col justify-center"></div>
+            <div class="mt-8 flex justify-center gap-4 w-full">
+                <button id="btn-welcome-next" class="btn w-1/3" onclick="nextWelcomeStep()">下一步</button>
+            </div>
+            <div class="mt-4 text-xs text-green-500">已连接主试端</div>
+        </div>
+
+        <div id="p-training" class="middle-screen hidden">
+            <h2 class="text-2xl font-bold mb-4 text-blue-400 text-center">系统错误类型说明</h2>
+            <div id="train-text-area"
+                 class="w-full max-w-3xl bg-gray-900 p-8 rounded-lg border border-gray-700 text-left min-h-[300px] flex flex-col justify-center">
+                <h3 id="train-title" class="text-3xl font-bold text-yellow-400 mb-4"></h3>
+                <div id="train-desc" class="text-xl text-gray-200 leading-relaxed space-y-4"></div>
+            </div>
+            <div class="flex gap-6 mt-8 w-2/3 justify-center">
+                <button class="btn btn-gray" style="width: 150px;" onclick="prevTrainingStep()">上一步</button>
+                <button class="btn" style="width: 150px;" onclick="nextTrainingStep()">下一步</button>
+            </div>
+        </div>
+
+        <div id="p-ndrt" class="middle-screen hidden">
+            <h2 class="text-2xl font-bold mb-4 text-yellow-400">非驾驶任务说明 (NDRT)</h2>
+            <div class="bg-gray-800 p-6 rounded-lg text-lg space-y-4 mb-4">
+                <p>在正式实验中，当您认为车辆行驶安全时，请执行次要任务。</p>
+                <p class="text-green-400 font-bold text-xl">请拿起您右手边的平板电脑，并在上面完成任务。</p>
+                <p>如果您觉得有危险，请立即停止平板任务，并关注前方路况。</p>
+                <p class="text-blue-400 font-bold mt-2">如需接管车辆，请立即按下空格键 (SPACE)。</p>
+            </div>
+            <button class="btn btn-green mt-4 w-1/2" onclick="finishNDRTInstruction()">下一步：填写基线问卷</button>
+        </div>
+
+        <div id="p-baseline" class="middle-screen hidden justify-start pt-10">
+            <h2 class="text-2xl font-bold mb-4 text-center">测前信任与背景调查</h2>
+            <div class="w-full max-w-3xl space-y-2 overflow-y-auto pr-2 pb-10">
+
+                <div class="section-title mt-0">一、基本信息</div>
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div><label>年龄:</label><input type="number" id="base-age"></div>
+                    <div><label>性别:</label>
+                        <select id="base-gender">
+                            <option value="" disabled selected>请选择...</option>
+                            <option value="Male">男</option>
+                            <option value="Female">女</option>
+                            <option value="Other">其他</option>
+                        </select>
+                    </div>
+                    <div><label>驾龄 (年):</label><input type="number" id="base-drive-exp"></div>
+                    <div><label>每周驾驶频次:</label>
+                        <select id="base-drive-freq">
+                            <option value="" disabled selected>请选择...</option>
+                            <option value="AlmostNever">几乎不驾驶</option>
+                            <option value="1-2days">1-2 天/周</option>
+                            <option value="3-4days">3-4 天/周</option>
+                            <option value="5-7days">5 天及以上/周</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="section-title">二、驾驶习惯与态度</div>
+                <div id="base-likert-cov"></div>
+
+                <div class="section-title">三、一般性信任</div>
+                <div id="base-likert-gen"></div>
+                <div class="section-title">四、环境感知信任</div>
+                <div id="base-likert-per"></div>
+                <div class="section-title">五、决策判断信任</div>
+                <div id="base-likert-dec"></div>
+                <div class="section-title">六、控制执行信任</div>
+                <div id="base-likert-ope"></div>
+                <div class="section-title">七、总体信任与接受意愿</div>
+                <div id="base-likert-acc"></div>
+            </div>
+            <div class="flex gap-6 mt-4 w-2/3 shrink-0 pb-6">
+                <button class="btn w-full btn-green" onclick="submitBaseline()">提交并准备就绪</button>
+            </div>
+        </div>
+
+        <div id="p-waiting" class="middle-screen hidden text-center">
+            <h1 class="text-4xl font-bold mb-6 text-green-400">准备就绪</h1>
+            <p class="text-xl text-gray-300">您已完成所有准备工作。</p>
+            <p class="text-xl text-gray-300 mt-4">请放松休息，等待主试启动实验。</p>
+            <div class="mt-8">
+                <div class="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-green-500"></div>
+            </div>
+        </div>
+
+        <div id="p-running" class="middle-screen transparent hidden"></div>
+
+        <div id="p-freeze" class="middle-screen hidden justify-start pt-10">
+            <h2 class="text-3xl font-bold mb-4 text-red-500 text-center">评价场景</h2>
+            <div class="w-full max-w-2xl space-y-4 overflow-y-auto pr-2 pb-10">
+                <div class="bg-gray-800 p-4 rounded border border-gray-600 mb-4">
+                    <div id="q-guide-box" class="mb-5 bg-gray-700/50 p-4 rounded border-l-4 border-blue-500 hidden">
+                        <p class="text-sm text-gray-400 font-bold mb-1">场景回顾：</p>
+                        <p id="q-guide-text" class="text-white text-lg leading-relaxed"></p>
+                    </div>
+
+                    <label class="block mb-2 font-bold text-lg text-yellow-400">1. 此次系统错误类型为：</label>
+                    <select id="q-check" class="text-black p-3 text-lg font-bold">
+                        <option value="" disabled selected>请选择...</option>
+                        <option value="A">A. 感知错误</option>
+                        <option value="B">B. 决策错误</option>
+                        <option value="C">C. 控制错误</option>
+                    </select>
+                </div>
+
+                <div class="section-title">二、信任维度变化感知</div>
+                <div class="text-blue-300 font-bold mt-2">环境感知可靠性</div>
+                <div id="post-likert-per"></div>
+                <div class="text-blue-300 font-bold mt-2">决策合理性</div>
+                <div id="post-likert-dec"></div>
+                <div class="text-blue-300 font-bold mt-2">操作执行稳定性</div>
+                <div id="post-likert-ope"></div>
+                <div class="text-blue-300 font-bold mt-2">信任恢复态度</div>
+                <div id="post-likert-rec"></div>
+
+                <div class="section-title">三、开放题</div>
+                <label class="block mb-1">11. 您认为这次错误最关键的问题在哪里？</label><textarea id="q-open1"
+                                                                                                 class="text-black"></textarea>
+                <label class="block mt-4 mb-1">12. 此次错误对您带来的信任损失是多少？</label><textarea id="q-open2"
+                                                                                                      class="text-black"></textarea>
+            </div>
+            <button id="btn-submit-trial" class="btn w-full mt-4 mb-8" onclick="submitTrialData()">提交评价</button>
+        </div>
+
+        <div id="p-end" class="middle-screen hidden">
+            <h1 class="text-3xl font-bold text-green-500 mb-6">实验结束</h1>
+            <p>感谢您的参与。</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    const socket = io();
+    let subjectData = {id: '', group: '', baseline: {}, trials: [], timestamps: []};
+    let currentTrialIndex = 0;
+    let trialOrder = [];
+    let currentPhaseState = 'idle';
+    let videoStatusTimer = null;
+    let takeoverTimer = null;
+
+    const VIDEO_SETS = {
+        LOW: {
+            normal1: '/videos/LOW/low-normal1.mp4',
+            normal2: '/videos/LOW/low-normal2.mp4',
+            normal3: '/videos/LOW/low-normal3.mp4',
+            percep: '/videos/LOW/low-percep.mp4',
+            decis: '/videos/LOW/low-decis.mp4',
+            exec: '/videos/LOW/low-exec.mp4'
+        },
+        HIGH: {
+            normal1: '/videos/HIGH/high-normal1.mp4',
+            normal2: '/videos/HIGH/high-normal2.mp4',
+            normal3: '/videos/HIGH/high-normal3.mp4',
+            percep: '/videos/HIGH/high-percep.mp4',
+            decis: '/videos/HIGH/high-decis.mp4',
+            exec: '/videos/HIGH/high-exec.mp4'
+        }
+    };
+
+    // 定义错误类型的引导语
+    const ERROR_GUIDES = {
+        'Perception': "在刚才的场景中，由于系统未能识别前方障碍物，车辆未采取有效避让措施，直接撞向障碍物。",
+        'Decision': "在刚才的场景中，系统已识别到前方慢车及对向来车，但仍选择进行短距离超车操作，最终与对向来车发生擦碰。",
+        'Execution': "在刚才的场景中，系统已识别到前方发生事故并选择制动，但制动过程不平稳，出现明显左右摇摆并伴随异常制动表现。"
+    };
+
+    function activateExperiment() {
+        enterFullscreen();
+        document.getElementById('ready-overlay').classList.add('hidden');
+        document.getElementById('ui-layer').classList.remove('hidden');
+
+        renderLikert('base-likert-cov', BASE_COV);
+        renderLikert('base-likert-gen', BASE_GEN);
+        renderLikert('base-likert-per', BASE_PER);
+        renderLikert('base-likert-dec', BASE_DEC);
+        renderLikert('base-likert-ope', BASE_OPE);
+        renderLikert('base-likert-acc', BASE_ACC);
+        renderLikert('post-likert-per', POST_PER);
+        renderLikert('post-likert-dec', POST_DEC);
+        renderLikert('post-likert-ope', POST_OPE);
+        renderLikert('post-likert-rec', POST_REC);
+
+        const v = document.getElementById('main-video');
+        v.muted = false;
+        v.volume = 1.0;
+        v.play().then(() => {
+            v.pause();
+            v.currentTime = 0;
+        }).catch(e => console.log("Audio unlock:", e));
+
+        setInterval(() => socket.emit('status', {type: 'ping'}), 2000);
+        showScreen('p-welcome');
+        socket.emit('status', {type: 'log', msg: '被试端已激活并进入欢迎页'});
+    }
+
+    function enterFullscreen() {
+        const docEl = document.documentElement;
+        try {
+            if (docEl.requestFullscreen) {
+                docEl.requestFullscreen().catch(e => console.warn(e));
+            } else if (docEl.webkitRequestFullscreen) {
+                docEl.webkitRequestFullscreen();
+            }
+        } catch (e) {
+        }
+    }
+
+    function restoreFullscreen() {
+        enterFullscreen();
+        document.getElementById('fullscreen-prompt').classList.add('hidden');
+        socket.emit('status', {type: 'log', msg: '被试已手动恢复全屏'});
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.code === 'Space') {
+            const runningScreen = document.getElementById('p-running');
+            if (!runningScreen.classList.contains('hidden')) {
+                e.preventDefault();
+                markEvent('Subject_Takeover');
+                console.log("Space pressed: Takeover marked");
+
+                const toast = document.getElementById('takeover-toast');
+                toast.classList.remove('hidden');
+
+                if (takeoverTimer) clearTimeout(takeoverTimer);
+
+                // 停留时间设定为 1500ms (1.5s)，可根据需要修改
+                takeoverTimer = setTimeout(() => {
+                    toast.classList.add('hidden');
+                }, 1500);
+            }
+        }
+    });
+
+    socket.on('cmd_from_server', (data) => handleSubjectCommand(data));
+
+    function handleSubjectCommand(data) {
+        switch (data.action) {
+            case 'syncSettings':
+                subjectData.id = data.id;
+                subjectData.group = data.group;
+                initTrialOrder(data.group);
+                socket.emit('status', {type: 'log', msg: `设置同步: ${data.id} (Seq: ${data.group})`});
+                break;
+            case 'nav':
+                showScreen(data.target);
+                break;
+            case 'startExperimentLoop':
+                startExperimentLoop();
+                break;
+            case 'skipCurrentVideo':
+                skipCurrentVideo();
+                break;
+            case 'resetCurrentTrial':
+                resetCurrentTrial();
+                break;
+            case 'markEvent':
+                markEvent(data.label);
+                break;
+            case 'exportData':
+                exportData();
+                break;
+            case 'toggleVideo':
+                const v = document.getElementById('main-video');
+                if (v && !v.paused) {
+                    v.pause();
+                    socket.emit('status', {type: 'log', msg: '视频已暂停'});
+                } else if (v && v.paused) {
+                    v.play();
+                    socket.emit('status', {type: 'log', msg: '视频已继续'});
+                }
+                break;
+            case 'skipQuestionnaire':
+                skipQuestionnaire();
+                break;
+            case 'requestFullscreen':
+                document.getElementById('fullscreen-prompt').classList.remove('hidden');
+                socket.emit('status', {type: 'log', msg: '主试请求全屏，已显示提示'});
+                break;
+        }
+    }
+
+    function initTrialOrder(fullGroupStr) {
+        if (!fullGroupStr) fullGroupStr = "L_ABC-H_BCA";
+        if (!fullGroupStr.includes('-')) fullGroupStr = `${fullGroupStr}-H_BCA`;
+
+        trialOrder = [];
+        const blocks = fullGroupStr.split('-');
+
+        blocks.forEach((blockCode, blockIndex) => {
+            let parts = blockCode.split('_');
+            let condition = (parts[0] === 'H') ? 'HIGH' : 'LOW';
+            let order = parts[1];
+            let videoSet = VIDEO_SETS[condition];
+            let sequence = [];
+            if (order === 'ABC') sequence = ['percep', 'decis', 'exec'];
+            else if (order === 'BCA') sequence = ['decis', 'exec', 'percep'];
+            else if (order === 'CAB') sequence = ['exec', 'percep', 'decis'];
+            else sequence = ['percep', 'decis', 'exec'];
+
+            sequence.forEach((typeKey, idx) => {
+                let typeName = '';
+                if (typeKey === 'percep') typeName = 'Perception';
+                if (typeKey === 'decis') typeName = 'Decision';
+                if (typeKey === 'exec') typeName = 'Execution';
+                let washKey = 'normal' + (idx + 1);
+                trialOrder.push({
+                    type: typeName,
+                    condition: condition,
+                    video: videoSet[typeKey],
+                    wash: videoSet[washKey],
+                    block: blockIndex + 1
+                });
+            });
+        });
+        console.log("Initialized 6-Trial Sequence:", trialOrder);
+    }
+
+    // --- 流程控制 ---
+    let welcomeStep = 0;
+    const WELCOME_INSTRUCTIONS = [
+        {
+            title: "实验目的",
+            content: ["感谢您参与我们的实验！我们正在研究自动驾驶系统在城市道路中的表现。", "您将体验一个自动驾驶场景，系统可能会出现错误，您需要监控系统，并在必要时接管车辆。"]
+        },
+        {
+            title: "任务说明",
+            content: ["您将坐在一个驾驶模拟器前，车辆由自动驾驶系统控制。", "您需要像真实驾驶一样监控道路状况。"]
+        },
+        {
+            title: "安全与重要提示",
+            content: ["这是一个模拟实验，所有事故（如果发生）都是虚拟的。", "特别强调：实验中可能出现的各类事故，其严重程度和后果是完全一致的，不存在某种事故比另一种更严重的情况。", "请尽量以真实驾驶的心态参与，但无需感到压力。"]
+        },
+        {
+            title: "注意事项",
+            content: ["实验过程中，我们会记录您的操作和眼动数据，这些数据仅用于研究。", "实验大约持续45分钟。"]
+        }
+    ];
+
+    function renderWelcome() {
+        if (welcomeStep >= WELCOME_INSTRUCTIONS.length) {
+            showScreen('p-training');
+            return;
+        }
+        const t = document.getElementById('welcome-title');
+        const c = document.getElementById('welcome-content');
+        const d = WELCOME_INSTRUCTIONS[welcomeStep];
+        t.innerText = d.title;
+        c.innerHTML = d.content.map(x => `<p>${x}</p>`).join('');
+    }
+
+    function nextWelcomeStep() {
+        welcomeStep++;
+        renderWelcome();
+    }
+
+    let trainingStep = 0;
+    const trainingContent = [
+        {title: "1. 感知识别错误", desc: "车辆未能检测到路面上的障碍物（如行人、车辆）。就像司机没看见前方有东西一样。"},
+        {
+            title: "2. 逻辑决策错误",
+            desc: "车辆识别到了障碍物，但规划的路线不合理（例如：试图撞向障碍物，或者在不该变道时变道）。"
+        },
+        {
+            title: "3. 控制执行错误",
+            desc: "车辆的路线规划是正确的，但在具体操作时不稳定（例如：方向盘左右摇摆，或者车身剧烈晃动）。"
+        }
+    ];
+
+    function renderTraining() {
+        const c = trainingContent[trainingStep];
+        document.getElementById('train-title').innerText = c.title;
+        document.getElementById('train-desc').innerText = c.desc;
+    }
+
+    function prevTrainingStep() {
+        if (trainingStep > 0) {
+            trainingStep--;
+            renderTraining();
+        } else {
+            showScreen('p-welcome');
+        }
+    }
+
+    function nextTrainingStep() {
+        if (trainingStep < 2) {
+            trainingStep++;
+            renderTraining();
+        } else {
+            showScreen('p-ndrt');
+        }
+    }
+
+    function finishNDRTInstruction() {
+        showScreen('p-baseline');
+    }
+
+    // [核心修复] 基线提交 - 详细错误提示 & 错误捕获
+    function submitBaseline() {
+        try {
+            let missing = [];
+
+            // 1. 检查基本信息
+            const age = document.getElementById('base-age').value;
+            const gender = document.getElementById('base-gender').value;
+            const exp = document.getElementById('base-drive-exp').value;
+            const freq = document.getElementById('base-drive-freq').value;
+
+            if (!age) missing.push("基本信息-年龄");
+            if (!gender) missing.push("基本信息-性别");
+            if (!exp) missing.push("基本信息-驾龄");
+            if (!freq) missing.push("基本信息-驾驶频次");
+
+            // 2. 检查问卷部分
+            // 辅助函数
+            const checkSection = (name, items) => {
+                const res = getLikertValues(items);
+                if (!res.complete) missing.push(name);
+                return res.values;
+            };
+
+            const l_cov = checkSection("驾驶习惯", BASE_COV);
+            const l_gen = checkSection("一般性信任", BASE_GEN);
+            const l_per = checkSection("环境感知信任", BASE_PER);
+            const l_dec = checkSection("决策判断信任", BASE_DEC);
+            const l_ope = checkSection("控制执行信任", BASE_OPE);
+            const l_acc = checkSection("总体信任", BASE_ACC);
+
+            // 3. 如果有缺失，统一弹窗
+            if (missing.length > 0) {
+                alert("无法提交，以下部分未完成：\n" + missing.join("\n"));
+                return;
+            }
+
+            // 4. 数据收集
+            subjectData.baseline = {
+                age, gender, exp, freq,
+                cov: l_cov, gen: l_gen, per: l_per, dec: l_dec, ope: l_ope, acc: l_acc
+            };
+
+            // 5. 提交成功
+            socket.emit('status', {type: 'log', msg: '被试提交了基线数据，准备就绪'});
+            socket.emit('status', {type: 'toast', msg: '被试已就绪', level: 'success'});
+            showScreen('p-waiting');
+
+        } catch (error) {
+            console.error(error);
+            alert("提交时发生代码错误: " + error.message);
+        }
+    }
+
+    const videoEl = document.getElementById('main-video');
+    const videoPlaceholder = document.getElementById('video-placeholder');
+    const spinner = document.getElementById('loading-spinner');
+    const retryOverlay = document.getElementById('play-retry-overlay');
+
+    videoEl.onplaying = function () {
+        retryOverlay.style.display = 'none';
+        spinner.style.display = 'none';
+        videoPlaceholder.classList.add('hidden');
+        videoEl.classList.remove('hidden');
+    };
+
+    async function playVideo(src, loop = false) {
+        if (videoStatusTimer) clearInterval(videoStatusTimer);
+        videoEl.src = src;
+        videoEl.loop = loop;
+        videoEl.muted = false;
+        spinner.style.display = 'block';
+        retryOverlay.style.display = 'none';
+        videoPlaceholder.classList.remove('hidden');
+        videoEl.classList.add('hidden');
+
+        const videoName = src.split('/').pop();
+        videoStatusTimer = setInterval(() => {
+            socket.emit('status', {
+                type: 'video_progress',
+                videoName: videoName,
+                currentTime: videoEl.currentTime,
+                duration: videoEl.duration,
+                currentTrial: currentTrialIndex + 1,
+                totalTrials: trialOrder.length || 6,
+                phase: currentPhaseState
+            });
+        }, 500);
+
+        try {
+            await videoEl.play();
+        } catch (e) {
+            spinner.style.display = 'none';
+            if (!videoEl.classList.contains('hidden')) {
+                retryOverlay.style.display = 'flex';
+                socket.emit('status', {type: 'toast', msg: `自动播放被阻拦`});
+            }
+        }
+    }
+
+    function manualPlay() {
+        retryOverlay.style.display = 'none';
+        videoEl.play();
+    }
+
+    // [修复] 彻底停止视频和进度更新
+    function stopVideo() {
+        if (videoStatusTimer) clearInterval(videoStatusTimer);
+        videoStatusTimer = null;
+
+        videoEl.pause();
+        // 清除 onended 事件，防止后续自动跳转
+        videoEl.onended = null;
+
+        videoEl.classList.add('hidden');
+        videoPlaceholder.classList.add('hidden');
+        spinner.style.display = 'none';
+        retryOverlay.style.display = 'none';
+    }
+
+    function showScreen(screenId) {
+        document.querySelectorAll('.middle-screen').forEach(el => el.classList.add('hidden'));
+        document.getElementById(screenId).classList.remove('hidden');
+
+        if (screenId === 'p-welcome') renderWelcome();
+        if (screenId === 'p-training') renderTraining();
+
+        // 实验结束时，发送 End 状态并停止
+        if (screenId === 'p-end') {
+            stopVideo();
+            currentPhaseState = 'ended';
+            socket.emit('status', {type: 'statusUpdate', phase: 'Ended', trial: 'Done'});
+        } else if (screenId !== 'p-running') {
+            stopVideo();
+        }
+
+        let phase = screenId;
+        if (screenId === 'p-running') phase = "Playing";
+
+        let trialDisplay = (currentTrialIndex + 1) + " / " + (trialOrder.length || 6);
+        if (trialOrder.length === 0) trialDisplay = "-";
+
+        socket.emit('status', {type: 'statusUpdate', phase: phase, trial: trialDisplay});
+    }
+
+    function startExperimentLoop() {
+        markEvent('Experiment_Start');
+        currentTrialIndex = 0;
+        runTrial();
+    }
+
+    function runTrial() {
+        if (currentTrialIndex >= trialOrder.length) {
+            showScreen('p-end');
+            return;
+        }
+        const cur = trialOrder[currentTrialIndex];
+        showScreen('p-running');
+        currentPhaseState = 'normal';
+        playVideo(cur.wash, false);
+        socket.emit('status', {type: 'statusUpdate', timer: 'Normal Video...'});
+        videoEl.onended = () => {
+            triggerStimulus(cur);
+        };
+    }
+
+    function triggerStimulus(trial) {
+        currentPhaseState = 'stimulus';
+        markEvent('Error_Scene_Start_' + trial.type);
+        playVideo(trial.video, false);
+        socket.emit('status', {type: 'statusUpdate', timer: 'Error Event!'});
+        videoEl.onended = () => enterTrustFreeze();
+    }
+
+    function enterTrustFreeze() {
+        currentPhaseState = 'freeze';
+        markEvent('Error_Scene_End');
+        videoEl.onended = null;
+        stopVideo();
+        socket.emit('status', {type: 'statusUpdate', timer: 'Questionnaire'});
+
+        // --- 新增逻辑：设置动态引导语 ---
+        const cur = trialOrder[currentTrialIndex];
+        const guideText = ERROR_GUIDES[cur.type] || "";
+        const guideBox = document.getElementById('q-guide-box');
+        const guideTextEl = document.getElementById('q-guide-text');
+
+        if (guideText) {
+            guideTextEl.innerText = guideText;
+            guideBox.classList.remove('hidden');
+        } else {
+            guideBox.classList.add('hidden');
+        }
+        // -----------------------------
+
+        document.getElementById('q-check').value = "";
+        document.getElementById('q-open1').value = "";
+        document.getElementById('q-open2').value = "";
+        document.querySelectorAll('#p-freeze input[type="radio"]').forEach(el => el.checked = false);
+        document.getElementById('btn-submit-trial').disabled = false;
+        document.getElementById('btn-submit-trial').innerText = "提交评价";
+        showScreen('p-freeze');
+    }
+
+    function skipQuestionnaire() {
+        if (!document.getElementById('p-freeze').classList.contains('hidden')) {
+            socket.emit('status', {type: 'log', msg: '[操作] 主试强制跳过当前问卷'});
+            const curTrialInfo = trialOrder[currentTrialIndex];
+            subjectData.trials.push({
+                trialNum: currentTrialIndex + 1,
+                block: curTrialInfo.block,
+                condition: curTrialInfo.condition,
+                type: curTrialInfo.type,
+                manipulationCheck: "Skipped",
+                postPer: {},
+                postDec: {},
+                postOpe: {},
+                postRec: {},
+                openQuestions: {q1: "Skipped by Operator", q2: ""}
+            });
+            showScreen('p-running');
+            setTimeout(() => {
+                currentTrialIndex++;
+                runTrial();
+            }, 500);
+        } else {
+            socket.emit('status', {type: 'toast', msg: '当前不在问卷阶段，无法跳过问卷'});
+        }
+    }
+
+    function submitTrialData() {
+        const check = document.getElementById('q-check').value;
+        const l_per = getLikertValues(POST_PER);
+        const l_dec = getLikertValues(POST_DEC);
+        const l_ope = getLikertValues(POST_OPE);
+        const l_rec = getLikertValues(POST_REC);
+
+        if (!check || !l_per.complete || !l_dec.complete || !l_ope.complete || !l_rec.complete) return socket.emit('status', {
+            type: 'toast',
+            msg: "请回答所有问题",
+            level: 'warning'
+        });
+
+        document.getElementById('btn-submit-trial').disabled = true;
+        document.getElementById('btn-submit-trial').innerText = "提交中...";
+        const open1 = document.getElementById('q-open1').value;
+        const open2 = document.getElementById('q-open2').value;
+        const curTrialInfo = trialOrder[currentTrialIndex];
+
+        subjectData.trials.push({
+            trialNum: currentTrialIndex + 1,
+            block: curTrialInfo.block,
+            condition: curTrialInfo.condition,
+            type: curTrialInfo.type,
+            manipulationCheck: check,
+            postPer: l_per.values,
+            postDec: l_dec.values,
+            postOpe: l_ope.values,
+            postRec: l_rec.values,
+            openQuestions: {q1: open1, q2: open2}
+        });
+
+        showScreen('p-running');
+        setTimeout(() => {
+            currentTrialIndex++;
+            runTrial();
+        }, 2000);
+    }
+
+    function skipCurrentVideo() {
+        if (currentPhaseState === 'normal') triggerStimulus(trialOrder[currentTrialIndex]);
+        else if (currentPhaseState === 'stimulus') enterTrustFreeze();
+        else if (videoEl.onended) videoEl.onended();
+    }
+
+    function resetCurrentTrial() {
+        stopVideo();
+        runTrial();
+    }
+
+    function markEvent(label) {
+        socket.emit('status', {type: 'log', msg: `Mark: ${label}`});
+        const sb = document.getElementById('sync-box');
+        sb.style.backgroundColor = 'white';
+        setTimeout(() => sb.style.backgroundColor = 'black', 100);
+    }
+
+    // [FIXED] 整理了 HTML 生成结构，避免属性值中出现意外换行
+    function renderLikert(cid, items) {
+        const container = document.getElementById(cid);
+        let html = '';
+        items.forEach(item => {
+            const labelLeft = item.labels ? item.labels[0] : "非常不同意";
+            const labelRight = item.labels ? item.labels[1] : "非常同意";
+
+            // 构建选项 HTML，确保紧凑无换行
+            const optionsHtml = [1, 2, 3, 4, 5, 6, 7].map(v =>
+                    `<label class="likert-option"><input type="radio" name="${item.id}" value="${v}"><span>${v}</span></label>`
+            ).join('');
+
+            html += `<div class="likert-container">
+                        <span class="likert-question">${item.text}</span>
+                        <div class="likert-scale">${optionsHtml}</div>
+                        <div class="likert-labels"><span>${labelLeft}</span><span>${labelRight}</span></div>
+                     </div>`;
+        });
+        container.innerHTML = html;
+    }
+
+    // [FIXED] 彻底移除了字符串内的换行符，并增加了错误捕获
+    function getLikertValues(items) {
+        let res = {};
+        let ok = true;
+        items.forEach(i => {
+            // 构造选择器字符串，绝对不能包含换行符
+            const selector = `input[name="${i.id}"]:checked`;
+            try {
+                const el = document.querySelector(selector);
+                if (el) {
+                    res[i.id] = el.value;
+                } else {
+                    ok = false;
+                }
+            } catch (e) {
+                console.error("选择器错误:", selector, e);
+                alert("内部错误: 无效的选择器 " + selector);
+                ok = false;
+            }
+        });
+        return {values: res, complete: ok};
+    }
+
+    // [关键修复] 修改导出逻辑，支持仅有基线数据的情况
+    function exportData() {
+        const covK = BASE_COV.map(i => i.id);
+        const genK = BASE_GEN.map(i => i.id);
+        const perK = BASE_PER.map(i => i.id);
+        const decK = BASE_DEC.map(i => i.id);
+        const opeK = BASE_OPE.map(i => i.id);
+        const accK = BASE_ACC.map(i => i.id);
+        const pPerK = POST_PER.map(i => i.id);
+        const pDecK = POST_DEC.map(i => i.id);
+        const pOpeK = POST_OPE.map(i => i.id);
+        const pRecK = POST_REC.map(i => i.id);
+
+        const headers = ['SubjectID', 'GroupSequence', 'Age', 'Gender', 'DriveExp', 'DriveFreq', ...covK, ...genK, ...perK, ...decK, ...opeK, ...accK, 'TrialNum', 'Block', 'Condition', 'TrialType', 'ManipCheck', ...pPerK, ...pDecK, ...pOpeK, ...pRecK, 'Open_Q1', 'Open_Q2'];
+        let csvContent = headers.join(',') + '\n';
+
+        const baseData = [
+            subjectData.id || 'Unknown', subjectData.group || 'Unknown',
+            subjectData.baseline.age || '', subjectData.baseline.gender || '',
+            subjectData.baseline.exp || '', subjectData.baseline.freq || '',
+            ...covK.map(k => subjectData.baseline.cov?.[k] || ''), ...genK.map(k => subjectData.baseline.gen?.[k] || ''), ...perK.map(k => subjectData.baseline.per?.[k] || ''),
+            ...decK.map(k => subjectData.baseline.dec?.[k] || ''), ...opeK.map(k => subjectData.baseline.ope?.[k] || ''), ...accK.map(k => subjectData.baseline.acc?.[k] || '')
+        ];
+
+        // 核心修改：如果 Trials 数组为空（即还没跑数据，只做了基线），则构造一行空 Trial 的数据
+        if (subjectData.trials.length === 0) {
+            const remainingColsCount = headers.length - baseData.length;
+            const emptyCols = new Array(remainingColsCount).fill("NA"); // 标记为 NA
+            const row = [...baseData, ...emptyCols];
+            csvContent += row.join(',') + '\n';
+        } else {
+            subjectData.trials.forEach(trial => {
+                const cleanQ1 = (trial.openQuestions?.q1 || '').replace(/(\r\n|\n|\r|,)/gm, " ");
+                const cleanQ2 = (trial.openQuestions?.q2 || '').replace(/(\r\n|\n|\r|,)/gm, " ");
+                const row = [
+                    ...baseData,
+                    trial.trialNum, trial.block, trial.condition, trial.type, trial.manipulationCheck,
+                    ...pPerK.map(k => trial.postPer?.[k] || ''), ...pDecK.map(k => trial.postDec?.[k] || ''),
+                    ...pOpeK.map(k => trial.postOpe?.[k] || ''), ...pRecK.map(k => trial.postRec?.[k] || ''),
+                    cleanQ1, cleanQ2
+                ];
+                csvContent += row.join(',') + '\n';
+            });
+        }
+
+        // [FIXED] 移除了文件名字符串内的换行符
+        socket.emit('upload_data', {content: csvContent, filename: `Data_${subjectData.id||'NoID'}.csv`});
+        socket.emit('status', {type: 'toast', msg: "数据已发送至主试端下载", level: 'success'});
+    }
+
+    const BASE_COV = [{
+        id: 'cov_fam',
+        text: '我对自动驾驶总体熟悉度。',
+        labels: ['非常不熟悉', '非常熟悉']
+    }, {id: 'cov_freq', text: '我日常使用自动驾驶功能的频率。', labels: ['非常低', '非常高']}, {
+        id: 'cov_risk',
+        text: '我对路面风险很敏感。',
+        labels: ['非常不同意', '非常同意']
+    }, {id: 'cov_style', text: '自评驾驶风格', labels: ['非常保守', '非常激进']}, {
+        id: 'cov_tech',
+        text: '我对新技术总体上持信任态度。',
+        labels: ['非常不同意', '非常同意']
+    }, {id: 'cov_ctrl', text: '我更喜欢自己掌控车辆而不是交给系统。', labels: ['非常不同意', '非常同意']}];
+    const BASE_GEN = [{id: 'gen1', text: '我对即将体验的自动驾驶系统充满信心。'}, {
+        id: 'gen2',
+        text: '我愿意在未来长期使用自动驾驶系统。'
+    }, {id: 'gen3', text: '与人类驾驶相比，我相信自动驾驶更稳定可靠。'}];
+    const BASE_PER = [{id: 'per1', text: '我相信自动驾驶系统可以准确识别行人、车辆和障碍物。'}, {
+        id: 'per2',
+        text: '在复杂的道路环境中，我相信系统不会漏检或误识关键信息。'
+    }, {id: 'per3', text: '我对系统感知能力的稳定性和准确性有信心。'}, {
+        id: 'per4',
+        text: '即使在光线不佳或视野受限的情况下，我也信任系统的感知表现。'
+    }];
+    const BASE_DEC = [{id: 'dec1', text: '我认为系统能在多种交通情境中做出合理的驾驶决策。'}, {
+        id: 'dec2',
+        text: '当面对突发状况时，系统能做出符合常理的决策。'
+    }, {id: 'dec3', text: '我相信系统在选择行驶路径和处理路口等场景中具有良好的判断力。'}, {
+        id: 'dec4',
+        text: '系统的决策行为让我感到它具备一定的逻辑和理性。'
+    }];
+    const BASE_OPE = [{id: 'ope1', text: '我信任自动驾驶系统在加速、转向和制动时的平稳性。'}, {
+        id: 'ope2',
+        text: '系统执行控制指令的速度和精度让我感到安心。'
+    }, {id: 'ope3', text: '在交通变换场景中，我相信系统能稳定地完成操作而不会惊吓我。'}, {
+        id: 'ope4',
+        text: '我相信系统的驾驶行为不会出现延迟、失控或剧烈反应。'
+    }];
+    const BASE_ACC = [{id: 'acc1', text: '总体而言，我对自动驾驶系统持有高度信任。'}, {
+        id: 'acc2',
+        text: '如果我的朋友使用自动驾驶系统，我会感到安心。'
+    }, {id: 'acc3', text: '如果有机会，我愿意乘坐自动驾驶车辆。'}, {
+        id: 'acc4',
+        text: '如果自动驾驶系统犯错，我能理解并容忍偶尔的失误。'
+    }];
+    const POST_PER = [{id: 'post_per1', text: '本次事件让我怀疑系统是否能准确识别环境信息。'}, {
+        id: 'post_per2',
+        text: '我开始担心它在未来也会错过关键物体或障碍物。'
+    }];
+    const POST_DEC = [{id: 'post_dec1', text: '这次系统的反应让我认为它的判断能力存在问题。'}, {
+        id: 'post_dec2',
+        text: '如果再次遇到类似情况，我不确定系统是否能做出合理决策。'
+    }];
+    const POST_OPE = [{id: 'post_ope1', text: '系统的动作让我感觉不稳定或不自然。'}, {
+        id: 'post_ope2',
+        text: '我担心系统在控制车辆时存在延迟或执行错误。'
+    }];
+    const POST_REC = [{id: 'post_rec1', text: '尽管出现此次错误，我仍愿意继续使用该系统。'}, {
+        id: 'post_rec2',
+        text: '我认为这是偶发事件，不会完全动摇我对系统的整体信任。'
+    }];
+</script>
+</body>
+</html>

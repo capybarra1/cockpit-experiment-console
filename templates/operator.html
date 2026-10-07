@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>主试控制台 (Operator)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body {
+            background-color: #1f2937;
+            color: white;
+            font-family: 'Segoe UI', sans-serif;
+            padding: 20px;
+            min-width: 1280px;
+        }
+
+        .panel {
+            background: #111827;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #374151;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        input, select {
+            color: #000000 !important;
+            background-color: #ffffff !important;
+            border: 1px solid #9ca3af;
+            padding: 8px;
+            width: 100%;
+            margin-bottom: 15px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .btn {
+            padding: 10px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            width: 100%;
+            margin-bottom: 10px;
+            transition: 0.2s;
+            color: white;
+        }
+
+        .btn-blue {
+            background: #2563eb;
+        }
+
+        .btn-blue:hover {
+            background: #1d4ed8;
+        }
+
+        .btn-red {
+            background: #dc2626;
+        }
+
+        .btn-red:hover {
+            background: #b91c1c;
+        }
+
+        .btn-green {
+            background: #16a34a;
+        }
+
+        .btn-green:hover {
+            background: #15803d;
+        }
+
+        .btn-gray {
+            background: #4b5563;
+        }
+
+        .btn-gray:hover {
+            background: #374151;
+        }
+
+        .btn-yellow {
+            background: #d97706;
+        }
+
+        .btn-yellow:hover {
+            background: #b45309;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+            color: #9ca3af;
+        }
+
+        /* Log & Timeline Styles */
+        .log-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            background: #000;
+            border: 1px solid #444;
+            border-radius: 4px;
+            height: 200px;
+        }
+
+        table.log-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: 'Consolas', monospace;
+            font-size: 12px;
+        }
+
+        table.log-table th {
+            background: #333;
+            position: sticky;
+            top: 0;
+            text-align: left;
+            padding: 4px 8px;
+            color: #aaa;
+            z-index: 10;
+        }
+
+        table.log-table td {
+            border-bottom: 1px solid #222;
+            padding: 2px 8px;
+            color: #ccc;
+            white-space: nowrap;
+        }
+
+        .col-time {
+            color: #fbbf24 !important;
+            width: 90px;
+        }
+
+        .src-sub {
+            color: #60a5fa;
+        }
+
+        .src-op {
+            color: #f87171;
+        }
+
+        .src-sys {
+            color: #34d399;
+        }
+
+        .src-tab {
+            color: #facc15;
+        }
+
+        .timeline-wrapper {
+            margin-top: 10px;
+            margin-bottom: 10px;
+            background: #0f1218;
+            border: 1px solid #374151;
+            border-radius: 6px;
+            padding: 10px;
+            position: relative;
+        }
+
+        .timeline-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #9ca3af;
+            margin-bottom: 5px;
+        }
+
+        .timeline-scroll-area {
+            width: 100%;
+            height: 70px;
+            background: #1f2937;
+            border-radius: 4px;
+            position: relative;
+            overflow-x: auto;
+            overflow-y: hidden;
+            box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.5);
+        }
+
+        .timeline-track {
+            height: 100%;
+            position: relative;
+            min-width: 100%;
+        }
+
+        .timeline-tick {
+            position: absolute;
+            bottom: 0;
+            height: 10px;
+            border-left: 1px solid #555;
+            font-size: 10px;
+            color: #666;
+            padding-left: 2px;
+        }
+
+        .timeline-cursor {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #ef4444;
+            z-index: 20;
+            box-shadow: 0 0 4px rgba(239, 68, 68, 0.5);
+            transition: left 0.5s linear;
+            display: none;
+        }
+
+        .t-marker {
+            position: absolute;
+            top: 15px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            z-index: 10;
+            cursor: pointer;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transform: translateX(-50%);
+        }
+
+        .t-marker:hover {
+            transform: translateX(-50%) scale(1.5);
+            z-index: 30;
+            border-color: white;
+        }
+
+        /* Markers */
+        .tm-op {
+            background: #f87171;
+            top: 10px;
+        }
+
+        .tm-sub {
+            background: #60a5fa;
+            top: 25px;
+        }
+
+        .tm-sys {
+            background: #34d399;
+            top: 40px;
+            width: 4px;
+            height: 4px;
+        }
+
+        .tm-tab-correct {
+            background: #4ade80;
+            top: 55px;
+            width: 6px;
+            height: 6px;
+        }
+
+        .tm-tab-wrong {
+            background: #ef4444;
+            top: 55px;
+            width: 8px;
+            height: 8px;
+            border: 1px solid yellow;
+        }
+
+        .tm-mark {
+            background: #fbbf24;
+            top: 2px;
+            width: 10px;
+            height: 10px;
+            border-radius: 0;
+            transform: translateX(-50%) rotate(45deg);
+            border: 1px solid #fff;
+        }
+
+        .tm-start {
+            background: #a855f7;
+            top: 2px;
+            width: 12px;
+            height: 12px;
+            border-radius: 0;
+            transform: translateX(-50%);
+            border: 2px solid #fff;
+            z-index: 25;
+        }
+
+        .tm-error-start {
+            background: #f97316;
+            top: 2px;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 2px solid #fff;
+            z-index: 25;
+        }
+
+        .tm-error-end {
+            background: #dc2626;
+            top: 2px;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 2px solid #fff;
+            z-index: 25;
+        }
+
+        .tm-takeover {
+            background: #ffffff;
+            top: 20px;
+            width: 12px;
+            height: 12px;
+            border-radius: 0;
+            transform: translateX(-50%) rotate(45deg);
+            border: 2px solid #2563eb;
+            z-index: 30;
+        }
+    </style>
+</head>
+<body>
+<div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold text-blue-400 flex items-center gap-3">
+        🚗 主试控制台 <span class="text-sm text-gray-500 font-normal">v4.7 No-Ergo</span>
+    </h1>
+    <div class="flex gap-4">
+        <!-- [Removed] ErgoLAB Indicator -->
+        <div id="conn-status" class="px-4 py-2 bg-gray-800 rounded border border-red-600 text-red-500 font-bold">
+            🔴 服务器断开
+        </div>
+    </div>
+</div>
+
+<div class="grid grid-cols-3 gap-6 items-start h-[calc(100vh-100px)]">
+    <!-- 1. 设置面板 -->
+    <div class="panel">
+        <h3 class="text-lg font-bold text-yellow-400 mb-4 border-b border-gray-700 pb-2">1. 实验序列设置 (Sequence)</h3>
+        <label>被试编号</label><input type="text" id="subject-id" placeholder="例如: S001">
+
+        <div class="bg-gray-800 p-3 rounded mb-4 border border-gray-700">
+            <p class="text-xs text-gray-400 mb-2 font-bold">配置两个阶段 (共6试次)</p>
+            <label>第1阶段 (Phase 1)</label>
+            <select id="phase1">
+                <option value="L_ABC">Low - ABC</option>
+                <option value="L_BCA">Low - BCA</option>
+                <option value="L_CAB">Low - CAB</option>
+                <option value="H_ABC">High - ABC</option>
+                <option value="H_BCA">High - BCA</option>
+                <option value="H_CAB">High - CAB</option>
+            </select>
+            <label>第2阶段 (Phase 2)</label>
+            <select id="phase2">
+                <option value="H_BCA" selected>High - BCA</option>
+                <option value="H_ABC">High - ABC</option>
+                <option value="H_CAB">High - CAB</option>
+                <option value="L_ABC">Low - ABC</option>
+                <option value="L_BCA">Low - BCA</option>
+                <option value="L_CAB">Low - CAB</option>
+            </select>
+        </div>
+
+        <button class="btn btn-blue mt-2" onclick="syncSettings()">🔄 同步序列 (6 Trials)</button>
+
+        <div class="mt-auto pt-6 border-t border-gray-700">
+            <h3 class="text-lg font-bold text-yellow-400 mb-4">数据下载</h3>
+            <button class="btn btn-green mb-1" onclick="sendCommand('exportData')">💾 1. 下载驾驶数据 (CSV)</button>
+            <button class="btn btn-green mb-3" onclick="requestTabletData()">📱 2. 下载平板数据 (CSV)</button>
+            <button class="btn btn-blue" onclick="exportEventLog()">📋 3. 下载实验时间轴日志 (Log)</button>
+        </div>
+    </div>
+
+    <!-- 2. 控制面板 -->
+    <div class="panel">
+        <h3 class="text-lg font-bold text-blue-400 mb-4 border-b border-gray-700 pb-2">2. 流程控制</h3>
+        <label>准备阶段跳转 (Preparation Phase)</label>
+        <div class="grid grid-cols-2 gap-2 mb-6">
+            <button class="btn btn-gray mb-0" onclick="sendCommand('nav', 'p-welcome')">1. 欢迎页</button>
+            <button class="btn btn-gray mb-0" onclick="sendCommand('nav', 'p-training')">2. 培训页</button>
+            <button class="btn btn-gray mb-0" onclick="sendCommand('nav', 'p-ndrt')">3. NDRT说明</button>
+            <button class="btn btn-blue mb-0" onclick="sendCommand('nav', 'p-baseline')">4. 基线问卷</button>
+        </div>
+
+        <div class="bg-gray-800 p-4 rounded mb-6 border border-gray-700">
+            <p class="text-sm text-gray-300 mb-3 font-bold">🎬 正式实验 (6 Trials Loop)</p>
+            <div class="grid grid-cols-2 gap-2 mb-4">
+                <button class="btn btn-green col-span-2 mb-0 " onclick="startExperiment()">🚀 开始完整实验</button>
+                <button class="btn btn-red col-span-2 mb-0" onclick="endExperiment()">🏁 强制结束</button>
+            </div>
+
+            <p class="text-xs text-gray-400 mb-1">单次试次控制:</p>
+            <div class="grid grid-cols-2 gap-2">
+                <button class="btn btn-gray mb-0" onclick="sendCommand('skipCurrentVideo')">⏭ 跳过本段</button>
+                <button class="btn btn-gray mb-0" onclick="sendCommand('resetCurrentTrial')">↺ 重试本轮</button>
+                <button class="btn btn-yellow mb-0" onclick="sendCommand('toggleVideo')">⏯ 暂停/继续</button>
+                <button class="btn btn-gray mb-0" onclick="sendCommand('skipQuestionnaire')">⏩ 跳过问卷</button>
+                <button class="btn btn-blue col-span-2 mb-0" onclick="sendCommand('requestFullscreen')">⛶ 请求被试全屏
+                </button>
+            </div>
+        </div>
+
+        <label>手动打点 (Event Marker)</label>
+        <div class="flex gap-2">
+            <input type="text" id="custom-mark" placeholder="标记名称" value="Manual_Mark" style="margin-bottom:0">
+            <button class="btn btn-blue w-1/3 mb-0" onclick="manualMark()">📌 打点</button>
+        </div>
+    </div>
+
+    <!-- 3. 监控与可视化时间轴面板 -->
+    <div class="panel col-span-1">
+        <h3 class="text-lg font-bold text-green-400 mb-2 border-b border-gray-700 pb-2">3. 状态与可视化时间轴</h3>
+        <div class="bg-black rounded p-3 mb-2 border border-gray-600 font-mono text-sm grid grid-cols-2 gap-y-2">
+            <div>模拟器: <span id="subject-alive" class="text-gray-500">等待...</span></div>
+            <div>平板: <span id="tablet-alive" class="text-gray-500">等待...</span></div>
+            <div class="col-span-2 text-xs border-t border-gray-800 mt-1 pt-1">
+                平板得分: <span id="monitor-score" class="text-yellow-400 font-bold">0</span>
+            </div>
+
+            <div class="col-span-2 mt-2 bg-gray-800 rounded p-2 border border-gray-700">
+                <div class="mb-2">
+                    <div class="flex justify-between text-xs text-gray-400 mb-1">
+                        <span>总进度 (Trials)</span><span id="text-total" class="text-blue-300">0 / 6</span>
+                    </div>
+                    <div class="w-full bg-gray-700 rounded-full h-2">
+                        <div id="prog-total" class="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                             style="width: 0%"></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="flex justify-between text-xs text-gray-400 mb-1">
+                        <span>视频: <span id="video-name" class="text-white">-</span></span>
+                        <span id="video-time" class="text-green-300">00:00 / 00:00</span>
+                    </div>
+                    <div class="w-full bg-gray-700 rounded-full h-2">
+                        <div id="prog-video" class="bg-green-500 h-2 rounded-full transition-all duration-300"
+                             style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+            <div>阶段: <span id="monitor-phase" class="text-white">-</span></div>
+        </div>
+
+        <div class="timeline-wrapper">
+            <div class="timeline-header">
+                <span id="timeline-status-text">实验未开始</span>
+                <div class="flex gap-2 text-[10px]">
+                    <span class="flex items-center gap-1"><div class="w-2 h-2 bg-purple-500"></div>Start</span>
+                    <span class="flex items-center gap-1"><div class="w-2 h-2 bg-green-400"></div>NDRT√</span>
+                    <span class="flex items-center gap-1"><div class="w-2 h-2 bg-red-500"></div>NDRT×</span>
+                </div>
+            </div>
+            <div class="timeline-scroll-area" id="tl-scroll-area">
+                <div id="timeline-track" class="timeline-track">
+                    <div id="timeline-cursor" class="timeline-cursor"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex justify-between items-end mb-1 mt-2">
+            <span class="text-sm text-gray-400 font-bold">详细日志</span>
+            <button class="text-xs text-red-400 underline cursor-pointer" onclick="clearLog()">清空</button>
+        </div>
+        <div class="log-container">
+            <table class="log-table">
+                <thead>
+                <tr>
+                    <th style="width:90px;">Time</th>
+                    <th style="width:60px;">Source</th>
+                    <th>Event</th>
+                </tr>
+                </thead>
+                <tbody id="log-body"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    const socket = io();
+    let lastSubjectPing = 0;
+    let eventLogs = [];
+    let timelineStartTime = null;
+    let timelineInterval = null;
+    const PIXELS_PER_SEC = 5;
+
+    socket.on('connect', () => {
+        updateConn(true);
+        addLog("主试端连接成功", "System");
+    });
+    socket.on('disconnect', () => {
+        updateConn(false);
+        addLog("连接断开", "System");
+    });
+
+    socket.on('status_from_subject', (data) => {
+        if (data.type === 'ping') {
+            lastSubjectPing = Date.now();
+            document.getElementById('subject-alive').innerText = "在线";
+            document.getElementById('subject-alive').className = "text-green-500 font-bold";
+        } else if (data.type === 'statusUpdate') {
+            if (data.phase) document.getElementById('monitor-phase').innerText = data.phase;
+        } else if (data.type === 'video_progress') {
+            const vidName = data.videoName || '-';
+            const curTime = data.currentTime || 0;
+            const duration = data.duration || 1;
+            const curTrial = data.currentTrial || 0;
+            const totalTrials = data.totalTrials || 6;
+            const phase = data.phase || '-';
+
+            document.getElementById('monitor-phase').innerText = phase;
+            document.getElementById('video-name').innerText = vidName.length > 20 ? '...' + vidName.slice(-20) : vidName;
+
+            const vidPct = Math.min((curTime / duration) * 100, 100);
+            document.getElementById('prog-video').style.width = `${vidPct}%`;
+            document.getElementById('video-time').innerText = `${formatTime(curTime)} / ${formatTime(duration)}`;
+
+            document.getElementById('prog-total').style.width = `${(curTrial / totalTrials) * 100}%`;
+            document.getElementById('text-total').innerText = `${curTrial} / ${totalTrials}`;
+        } else if (data.type === 'log') {
+            addLog(data.msg, "Subject");
+        } else if (data.type === 'toast') {
+            alert(data.msg);
+            addLog(`[提示] ${data.msg}`, "System");
+        }
+    });
+
+    socket.on('status_from_tablet', (data) => {
+        document.getElementById('tablet-alive').innerText = "在线";
+        document.getElementById('tablet-alive').className = "text-green-500 font-bold";
+        if (data.raw_data && data.raw_data.score !== undefined) {
+            document.getElementById('monitor-score').innerText = data.raw_data.score;
+        }
+        if (data.event) addLog(data.event, "Tablet");
+    });
+
+    socket.on('data_ready_download', (data) => downloadFile(data.content, data.filename));
+
+    setInterval(() => {
+        if (Date.now() - lastSubjectPing > 5000) {
+            const el = document.getElementById('subject-alive');
+            el.innerText = "离线";
+            el.className = "text-red-500 font-bold";
+        }
+    }, 2000);
+
+    function formatTime(sec) {
+        const m = Math.floor(sec / 60);
+        const s = Math.floor(sec % 60);
+        return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    }
+
+    // --- 控制函数 ---
+    function startExperiment() {
+        if (timelineStartTime && !confirm("实验似乎已经开始，确定要重新开始吗？")) return;
+        sendCommand('startExperimentLoop');
+        initTimeline();
+        addLog("【正式实验开始】", "System");
+    }
+
+    function endExperiment() {
+        if (!confirm("确定结束实验吗？")) return;
+        sendCommand('nav', 'p-end');
+        stopTimeline();
+        addLog("【实验结束】", "System");
+    }
+
+    function sendCommand(action, arg1, arg2) {
+        socket.emit('command', {action, target: arg1, label: arg1, id: arg1, group: arg2});
+        if (action !== 'markEvent' && action !== 'startExperimentLoop') {
+            addLog(`指令: ${action} ${arg1 || ''}`, "Operator");
+        }
+    }
+
+    function manualMark() {
+        const label = document.getElementById('custom-mark').value || "Manual_Mark";
+        sendCommand('markEvent', label);
+        addLog(`打点: ${label}`, "Operator");
+    }
+
+    function requestTabletData() {
+        socket.emit('request_tablet_data');
+        addLog("请求下载平板数据...", "Operator");
+    }
+
+    function syncSettings() {
+        const id = document.getElementById('subject-id').value;
+        const p1 = document.getElementById('phase1').value;
+        const p2 = document.getElementById('phase2').value;
+        if (!id) return alert("请输入被试编号！");
+        sendCommand('syncSettings', id, `${p1}-${p2}`);
+        addLog(`同步序列: ${id}`, "Operator");
+    }
+
+    function addLog(msg, source) {
+        const now = Date.now();
+        const dateObj = new Date(now);
+        const timeStr = dateObj.toLocaleTimeString('zh-CN', {hour12: false}) + "." + String(dateObj.getMilliseconds()).padStart(3, '0');
+        eventLogs.push({timestamp: timeStr, rawTimestamp: now, source: source, event: msg});
+
+        const tbody = document.getElementById('log-body');
+        const row = document.createElement('tr');
+        let srcClass = "";
+        if (source === "Subject") srcClass = "src-sub";
+        else if (source === "Operator") srcClass = "src-op";
+        else if (source === "Tablet") srcClass = "src-tab";
+        else srcClass = "src-sys";
+
+        row.innerHTML = `<td class="col-time">${timeStr}</td><td class="${srcClass} font-bold">${source}</td><td>${msg}</td>`;
+        tbody.appendChild(row);
+        document.querySelector('.log-container').scrollTop = document.querySelector('.log-container').scrollHeight;
+        renderTimelineMarker(now, source, msg);
+    }
+
+    function initTimeline() {
+        timelineStartTime = Date.now();
+        document.getElementById('timeline-track').innerHTML = '<div id="timeline-cursor" class="timeline-cursor" style="display:block;"></div>';
+        document.getElementById('timeline-status-text').innerText = "🔴 实验进行中...";
+        document.getElementById('timeline-status-text').className = "text-green-400 font-bold animate-pulse";
+        if (timelineInterval) clearInterval(timelineInterval);
+        timelineInterval = setInterval(updateTimelineCursor, 200);
+    }
+
+    function stopTimeline() {
+        if (timelineInterval) clearInterval(timelineInterval);
+        timelineInterval = null;
+        document.getElementById('timeline-status-text').innerText = "🏁 实验已结束";
+        document.getElementById('timeline-status-text').className = "text-red-400 font-bold";
+        // 停止光标动画
+        const cursor = document.getElementById('timeline-cursor');
+        if (cursor) cursor.style.boxShadow = "none";
+    }
+
+    function updateTimelineCursor() {
+        if (!timelineStartTime) return;
+        const now = Date.now();
+        const diffSec = (now - timelineStartTime) / 1000;
+        const leftPx = diffSec * PIXELS_PER_SEC;
+        const cursor = document.getElementById('timeline-cursor');
+        if (cursor) cursor.style.left = `${leftPx}px`;
+
+        const track = document.getElementById('timeline-track');
+        if (leftPx > track.offsetWidth - 50) {
+            track.style.minWidth = `${leftPx + 200}px`;
+            document.getElementById('tl-scroll-area').scrollLeft = leftPx - 100;
+        }
+
+        const tickIndex = Math.floor(diffSec / 60);
+        const tickId = `tick-${tickIndex}`;
+        if (!document.getElementById(tickId)) {
+            const tick = document.createElement('div');
+            tick.id = tickId;
+            tick.className = 'timeline-tick';
+            tick.style.left = `${tickIndex * 60 * PIXELS_PER_SEC}px`;
+            tick.innerText = `${String(tickIndex).padStart(2,'0')}:00`;
+            track.appendChild(tick);
+        }
+    }
+
+    function renderTimelineMarker(timestamp, source, msg) {
+        if (!timelineStartTime) return;
+        const diffSec = (timestamp - timelineStartTime) / 1000;
+        if (diffSec < 0) return;
+        const leftPx = diffSec * PIXELS_PER_SEC;
+        const marker = document.createElement('div');
+        let cls = 't-marker ';
+
+        if (msg.includes('Experiment_Start')) cls += 'tm-start';
+        else if (msg.includes('Error_Scene_Start')) cls += 'tm-error-start';
+        else if (msg.includes('Error_Scene_End')) cls += 'tm-error-end';
+        else if (msg.includes('Subject_Takeover')) cls += 'tm-takeover';
+        else if (source === 'Tablet') {
+            if (msg.includes('Correct')) cls += 'tm-tab-correct';
+            else if (msg.includes('Wrong')) cls += 'tm-tab-wrong';
+            else cls += 'tm-sys';
+        } else if (msg.includes('Mark') || msg.includes('打点')) cls += 'tm-mark';
+        else if (source === 'Operator') cls += 'tm-op';
+        else if (source === 'Subject') cls += 'tm-sub';
+        else cls += 'tm-sys';
+
+        marker.className = cls;
+        marker.style.left = `${leftPx}px`;
+        if (!marker.title) marker.title = `[${source}] ${msg} (@${diffSec.toFixed(1)}s)`;
+        document.getElementById('timeline-track').appendChild(marker);
+    }
+
+    function clearLog() {
+        if (confirm("确定清空日志和时间轴？")) {
+            eventLogs = [];
+            document.getElementById('log-body').innerHTML = "";
+            document.getElementById('timeline-track').innerHTML = '<div id="timeline-cursor" class="timeline-cursor"></div>';
+        }
+    }
+
+    function exportEventLog() {
+        if (eventLogs.length === 0) return alert("无数据");
+        const sid = document.getElementById('subject-id').value || "NoID";
+        let csv = "Timestamp,RawTime,RelTime(s),Source,Event\n";
+        eventLogs.forEach(r => {
+            let relTime = "";
+            if (timelineStartTime) relTime = ((r.rawTimestamp - timelineStartTime) / 1000).toFixed(3);
+            else relTime = "PRE";
+            csv += `${r.timestamp},${r.rawTimestamp},${relTime},${r.source},"${r.event.replace(/"/g,'""')}"\n`
+                    });
+            downloadFile(csv, `
+            EventLog_${sid}.csv`);
+        }
+
+        function downloadFile(content, filename) {
+            const blob = new Blob(["\ufeff" + content], {type: 'text/csv;charset=utf-8;'});
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function updateConn(status) {
+            const el = document.getElementById('conn-status');
+            if(status) { el.innerText = "🟢 已连接"; el.className = el.className.replace('red','green'); }
+            else { el.innerText = "🔴 断开"; el.className = el.className.replace('green','red'); }
+        }
+    </script>
+</body>
+</html>

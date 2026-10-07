@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8"/>
+    <!-- 禁用缩放 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+    <title>视觉搜索任务 - 终极锁定版</title>
+    <!-- [修复] 必须引入 Socket.IO 才能通信 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        :root {
+            --bg-color: #333;
+            --panel-border: #555;
+            --text-color: #eee;
+            --accent-color: #ff9800;
+        }
+
+        /* 关键修改：
+           使用 fixed 定位铺满屏幕，配合 JS 动态计算高度，
+           彻底消除因 100vh 导致的滚动条隐患。
+        */
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%; /* 这里的100%是相对于视口的，随后JS会修正 */
+            background-color: var(--bg-color);
+            overflow: hidden; /* 隐藏溢出 */
+            position: fixed; /* 钉死在屏幕上 */
+            top: 0;
+            left: 0;
+            touch-action: none; /* 禁止CSS层面的手势 */
+            -webkit-user-select: none;
+            user-select: none;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* 开始屏幕遮罩 */
+        #start-screen {
+            position: absolute; /* 相对于body定位 */
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            color: white;
+            text-align: center;
+        }
+
+        /* 连接状态指示 */
+        #connection-status {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #777;
+        }
+
+        .status-ok {
+            color: #4ade80 !important;
+        }
+
+        #start-btn {
+            margin-top: 20px;
+            padding: 15px 40px;
+            font-size: 1.5rem;
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(255, 152, 0, 0.4);
+        }
+
+        #start-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* 顶部记分板 */
+        #hud {
+            width: 95vw;
+            height: 60px; /* 固定高度 */
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: white;
+            flex-shrink: 0; /* 防止被压缩 */
+        }
+
+        #score-box {
+            font-size: 1.2rem;
+            font-weight: bold;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px 15px;
+            border-radius: 8px;
+            border: 1px solid #666;
+        }
+
+        #feedback {
+            font-size: 1.2rem;
+            font-weight: bold;
+            text-align: center;
+            flex-grow: 1;
+        }
+
+        #reset-btn {
+            background: #444;
+            color: white;
+            border: 1px solid #777;
+            padding: 8px 15px;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+
+        /* 游戏主容器 */
+        #container {
+            width: 95vw;
+            /* 高度将通过flex自动填充剩余空间，留出边距 */
+            flex-grow: 1;
+            margin-bottom: 20px;
+            display: flex;
+            border: 4px solid var(--panel-border);
+            position: relative;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        .half {
+            flex: 1;
+            position: relative;
+            touch-action: none;
+            transition: background-color 0.2s;
+        }
+
+        #left {
+            background-color: #1a1a1a;
+            border-right: 2px solid var(--panel-border);
+        }
+
+        #right {
+            background-color: #b0b0b0;
+            border-left: 2px solid var(--panel-border);
+        }
+
+        .circle {
+            position: absolute;
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            pointer-events: none;
+        }
+
+        #instruction {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: var(--accent-color);
+            font-size: 1.1rem;
+            background-color: rgba(0, 0, 0, 0.8);
+            padding: 8px 20px;
+            border-radius: 20px;
+            pointer-events: none;
+            white-space: nowrap;
+            text-align: center;
+            z-index: 100;
+        }
+
+        /* 动画 */
+        @keyframes flash-green {
+            0% {
+                box-shadow: 0 0 0 0 rgba(0, 255, 0, 0);
+            }
+            30% {
+                box-shadow: 0 0 50px 20px rgba(46, 204, 113, 0.6) inset;
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(0, 255, 0, 0);
+            }
+        }
+
+        @keyframes flash-red {
+            0% {
+                box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
+            }
+            30% {
+                box-shadow: 0 0 50px 20px rgba(231, 76, 60, 0.6) inset;
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
+            }
+        }
+
+        .correct-anim {
+            animation: flash-green 0.4s ease-out;
+        }
+
+        .wrong-anim {
+            animation: flash-red 0.4s ease-out;
+        }
+
+    </style>
+</head>
+<body>
+
+<!-- 开始/全屏 遮罩层 -->
+<div id="start-screen">
+    <h1>视觉搜索任务</h1>
+    <p>找出并双击含有 <b>最大圆圈</b> 的区域</p>
+    <div id="connection-status">正在连接服务器...</div>
+    <div id="subject-info" style="color: #aaa; margin-top: 5px; font-size: 0.8em; display:none;"></div>
+    <button id="start-btn" onclick="startGame()">点击开始 (锁定)</button>
+</div>
+
+<div id="hud">
+    <div id="score-box">得分: <span id="score-val">0</span></div>
+    <div id="feedback"></div>
+    <button id="reset-btn" onclick="resetGame()">重置</button>
+</div>
+
+<div id="container">
+    <div id="left" class="half"></div>
+    <div id="right" class="half"></div>
+    <div id="instruction">快速双击含有<br><b>最大圆圈</b> 的区域</div>
+</div>
+
+<script>
+    // --- 1. 通信与初始化 (Fix: 添加Socket逻辑) ---
+    const socket = io();
+    let currentSubjectId = "Test_User"; // 默认ID，等待同步
+    let currentGroup = "";
+
+    // 监听连接状态
+    socket.on('connect', () => {
+        const statusEl = document.getElementById('connection-status');
+        statusEl.innerText = "🟢 已连接主试端";
+        statusEl.classList.add('status-ok');
+        // 发送上线消息
+        socket.emit('tablet_event', {type: 'connected', subjectId: currentSubjectId});
+    });
+
+    socket.on('disconnect', () => {
+        const statusEl = document.getElementById('connection-status');
+        statusEl.innerText = "🔴 连接断开";
+        statusEl.classList.remove('status-ok');
+    });
+
+    // 监听主试端指令
+    socket.on('cmd_from_server', (data) => {
+        if (data.action === 'syncSettings') {
+            currentSubjectId = data.id;
+            currentGroup = data.group;
+
+            const infoEl = document.getElementById('subject-info');
+            infoEl.style.display = 'block';
+            infoEl.innerText = `当前被试: ${currentSubjectId} (组: ${currentGroup})`;
+
+            // 同步设置时，重置游戏
+            resetGame(true);
+            alert(`设置已同步: ${currentSubjectId}`);
+        }
+    });
+
+
+    // --- 2. 游戏逻辑变量 ---
+    const leftPanel = document.getElementById("left");
+    const rightPanel = document.getElementById("right");
+    const feedbackEl = document.getElementById("feedback");
+    const scoreValEl = document.getElementById("score-val");
+    const container = document.getElementById("container");
+    const startScreen = document.getElementById("start-screen");
+
+    let currentScore = 0;
+    let isProcessing = false;
+    let currentTargetSide = "";
+    let lastTapTime = {};
+    let trialStartTime = 0; // 用于计算反应时
+
+    // --- 3. 工具函数 & 逻辑 ---
+
+    // 动态修正高度
+    function fixViewportHeight() {
+        // 强制将body高度设为视口内部高度
+        document.body.style.height = window.innerHeight + 'px';
+        // 触发重绘
+        if (typeof setupRound === 'function') {
+            setupRound();
+        }
+    }
+
+    function getRandom(min, max) {
+        return Math.random() * (max - min) + min;
+    }
+
+    function checkOverlap(x, y, size, existingCircles) {
+        const buffer = 4;
+        for (let circle of existingCircles) {
+            const dx = x - circle.x;
+            const dy = y - circle.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < (size / 2 + circle.size / 2 + buffer)) return true;
+        }
+        return false;
+    }
+
+    function createCircles(panel, count, hasLarger) {
+        panel.innerHTML = "";
+        const w = panel.clientWidth;
+        const h = panel.clientHeight;
+        const existing = [];
+
+        for (let i = 0; i < count; i++) {
+            const circle = document.createElement("div");
+            let size;
+            if (hasLarger && i === 0) {
+                size = getRandom(42, 48);
+                circle.style.zIndex = "10";
+            } else {
+                size = getRandom(22, 38);
+            }
+
+            let x, y, attempts = 0, overlap = true;
+            while (overlap && attempts < 50) {
+                x = getRandom(10, w - size - 10);
+                y = getRandom(10, h - size - 10);
+                overlap = checkOverlap(x + size / 2, y + size / 2, size, existing);
+                attempts++;
+            }
+            existing.push({x: x + size / 2, y: y + size / 2, size});
+
+            circle.className = "circle";
+            circle.style.width = size + "px";
+            circle.style.height = size + "px";
+            circle.style.top = y + "px";
+            circle.style.left = x + "px";
+            panel.appendChild(circle);
+        }
+    }
+
+    function setupRound() {
+        if (isProcessing) return;
+        if (!leftPanel || leftPanel.clientWidth === 0) return;
+
+        container.classList.remove("correct-anim", "wrong-anim");
+        feedbackEl.textContent = "";
+        currentTargetSide = Math.random() < 0.5 ? "left" : "right";
+        createCircles(leftPanel, 20, currentTargetSide === "left");
+        createCircles(rightPanel, 20, currentTargetSide === "right");
+
+        // 记录本轮开始时间
+        trialStartTime = Date.now();
+        isProcessing = false;
+    }
+
+    function handleChoice(choice) {
+        if (isProcessing) return;
+        isProcessing = true;
+
+        // 计算反应时
+        const rt = Date.now() - trialStartTime;
+        let resultStr = "";
+
+        if (choice === currentTargetSide) {
+            currentScore += 10;
+            resultStr = "correct";
+            feedbackEl.textContent = "✅ 正确 +10";
+            feedbackEl.style.color = "#2ecc71";
+            container.classList.add("correct-anim");
+        } else {
+            currentScore -= 5;
+            resultStr = "wrong";
+            feedbackEl.textContent = "❌ 错误 -5";
+            feedbackEl.style.color = "#e74c3c";
+            container.classList.add("wrong-anim");
+        }
+        updateScore();
+
+        // [修复] 发送数据到服务器
+        socket.emit('tablet_event', {
+            type: 'click',
+            result: resultStr,
+            score: currentScore,
+            subjectId: currentSubjectId,
+            rt: rt,
+            timestamp: Date.now()
+        });
+
+        setTimeout(() => {
+            isProcessing = false;
+            setupRound();
+        }, 800);
+    }
+
+    function updateScore() {
+        scoreValEl.innerText = currentScore;
+        if (currentScore > 0) scoreValEl.style.color = "#2ecc71";
+        else if (currentScore < 0) scoreValEl.style.color = "#e74c3c";
+        else scoreValEl.style.color = "white";
+    }
+
+    // silent参数用于静默重置（如同不步设置时），不触发socket日志
+    function resetGame(silent = false) {
+        currentScore = 0;
+        updateScore();
+
+        if (!silent) {
+            socket.emit('tablet_event', {
+                type: 'reset',
+                subjectId: currentSubjectId,
+                timestamp: Date.now()
+            });
+        }
+
+        setTimeout(setupRound, 50);
+    }
+
+    function startGame() {
+        const elem = document.documentElement;
+        if (elem.requestFullscreen) {
+            elem.requestFullscreen().catch(e => console.log(e));
+        } else if (elem.webkitRequestFullscreen) {
+            elem.webkitRequestFullscreen();
+        }
+
+        startScreen.style.display = "none";
+        fixViewportHeight();
+        resetGame();
+    }
+
+    function setupInteraction(el, side) {
+        el.addEventListener('dblclick', (e) => {
+            e.preventDefault();
+            handleChoice(side);
+        });
+
+        el.addEventListener('touchend', (e) => {
+            const curr = new Date().getTime();
+            const diff = curr - (lastTapTime[side] || 0);
+            if (diff < 300 && diff > 0) {
+                handleChoice(side);
+                lastTapTime[side] = 0;
+            } else {
+                lastTapTime[side] = curr;
+            }
+        });
+    }
+
+    // --- 4. 事件监听与启动 ---
+
+    setupInteraction(leftPanel, "left");
+    setupInteraction(rightPanel, "right");
+
+    document.body.addEventListener('touchmove', function (e) {
+        e.preventDefault();
+    }, {passive: false});
+
+    document.addEventListener('gesturestart', function (e) {
+        e.preventDefault();
+    });
+
+    window.addEventListener('resize', fixViewportHeight);
+    window.addEventListener('orientationchange', () => {
+        setTimeout(fixViewportHeight, 100);
+    });
+
+    // 最后执行初始化
+    fixViewportHeight();
+
+</script>
+</body>
+</html>
